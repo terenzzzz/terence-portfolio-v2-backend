@@ -31,6 +31,7 @@ export async function initDatabase() {
   await visits.createIndexes([
     { key: { createdAt: -1 } },
     { key: { ip: 1, createdAt: -1 } },
+    { key: { sessionId: 1, createdAt: -1 } },
     { key: { 'geo.countryCode': 1, createdAt: -1 } },
   ])
 

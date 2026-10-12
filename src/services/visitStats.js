@@ -159,10 +159,11 @@ export async function getVisitStats() {
   const totals = summary?.totals?.[0]
   const sumSince = (days) => byDay.slice(-days).reduce((sum, row) => sum + row.count, 0)
 
-  const recent = await visits
+  const recentDocs = await visits
     .find(human, {
       projection: {
         createdAt: 1,
+        sessionId: 1,
         path: 1,
         ip: 1,
         referrer: 1,
@@ -176,7 +177,7 @@ export async function getVisitStats() {
       },
     })
     .sort({ createdAt: -1 })
-    .limit(30)
+    .limit(200)
     .toArray()
 
   return {
@@ -190,17 +191,39 @@ export async function getVisitStats() {
     byPath: summary?.byPath || [],
     byLocation: summary?.byLocation || [],
     byProvince: areaRows(summary?.byProvince || []),
-    recent: recent.map((item) => ({
-      id: String(item._id),
-      createdAt: item.createdAt,
-      path: item.path || '/',
-      ip: item.ip || '',
-      address: item.geo?.address || '',
-      referrer: item.referrer || '',
-      language: item.client?.language || '',
-      platform: unquote(item.clientHints?.platform || item.client?.platform || ''),
-      timezone: item.client?.timezone || '',
-      pushed: Boolean(item.pushed),
-    })),
+    recent: groupTrails(recentDocs),
   }
+}
+
+function groupTrails(docs) {
+  const groups = new Map()
+  for (const item of docs) {
+    const key = item.sessionId || String(item._id)
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(item)
+  }
+
+  return [...groups.values()]
+    .map((items) => {
+      const ordered = [...items].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+      const first = ordered[0]
+      const last = ordered.at(-1)
+      const located = ordered.find((item) => item.geo?.address)
+      return {
+        id: first.sessionId || String(first._id),
+        startedAt: first.createdAt,
+        endedAt: last.createdAt,
+        ip: last.ip || '',
+        address: located?.geo?.address || '',
+        referrer: first.referrer || '',
+        language: last.client?.language || '',
+        platform: unquote(last.clientHints?.platform || last.client?.platform || ''),
+        timezone: last.client?.timezone || '',
+        steps: ordered.map((item) => ({
+          path: item.path || '/',
+          createdAt: item.createdAt,
+        })),
+      }
+    })
+    .sort((a, b) => new Date(b.endedAt) - new Date(a.endedAt))
 }

@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import rateLimit from 'express-rate-limit'
+import { timingSafeEqual } from 'node:crypto'
 import { pushVisit } from './bark.js'
 import { checkDatabase, initDatabase } from './db/client.js'
 import { lookupGeo } from './services/geo.js'
@@ -25,6 +26,7 @@ const origins = (process.env.CORS_ORIGIN || '')
 
 app.use(cors({
   origin: origins.length ? origins : true,
+  allowedHeaders: ['Content-Type', 'X-Stats-Password'],
 }))
 
 const burstLimiter = rateLimit({
@@ -96,7 +98,18 @@ const statsLimiter = rateLimit({
   message: { ok: false, error: 'RATE_LIMIT', message: '请求过于频繁，请稍后重试' },
 })
 
-app.get('/api/stats', statsLimiter, async (_req, res) => {
+function statsPasswordOk(req) {
+  const expected = Buffer.from(process.env.STATS_PASSWORD || '')
+  const actual = Buffer.from(String(req.get('x-stats-password') || ''))
+  if (!expected.length || expected.length !== actual.length) return false
+  return timingSafeEqual(expected, actual)
+}
+
+app.get('/api/stats', statsLimiter, async (req, res) => {
+  if (!statsPasswordOk(req)) {
+    return res.status(401).json({ ok: false, error: 'UNAUTHORIZED', message: '密码不正确' })
+  }
+
   try {
     const stats = await getVisitStats()
     if (!stats) {

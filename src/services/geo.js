@@ -18,9 +18,36 @@ function addressFrom(geo) {
   return [geo.country, geo.regionName, geo.city, geo.district].filter(Boolean).join(' ')
 }
 
+const cache = new Map()
+const CACHE_TTL_MS = 60 * 60 * 1000
+
+function readCache(ip) {
+  const hit = cache.get(ip)
+  if (!hit) return null
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    cache.delete(ip)
+    return null
+  }
+  return hit.geo
+}
+
+function writeCache(ip, geo) {
+  cache.set(ip, { at: Date.now(), geo })
+  if (cache.size <= 300) return
+  const expired = [...cache.entries()]
+    .sort((a, b) => a[1].at - b[1].at)
+    .slice(0, 50)
+  for (const [key] of expired) cache.delete(key)
+}
+
 export async function lookupGeo(ip) {
+  const cached = readCache(ip)
+  if (cached) return cached
+
   if (isPrivateIp(ip)) {
-    return { status: 'private', address: '本地或内网地址' }
+    const geo = { status: 'private', address: '本地或内网地址' }
+    writeCache(ip, geo)
+    return geo
   }
 
   const url = `http://ip-api.com/json/${encodeURIComponent(ip)}?lang=zh-CN&fields=status,message,country,countryCode,regionName,city,district,zip,lat,lon,timezone,isp,org,as,query`
@@ -35,7 +62,7 @@ export async function lookupGeo(ip) {
     }
   }
 
-  return {
+  const geo = {
     status: 'ok',
     address: addressFrom(data),
     country: data.country || '',
@@ -51,4 +78,6 @@ export async function lookupGeo(ip) {
     org: data.org || '',
     as: data.as || '',
   }
+  writeCache(ip, geo)
+  return geo
 }

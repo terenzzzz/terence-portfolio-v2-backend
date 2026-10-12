@@ -22,10 +22,15 @@ export function clientIp(req) {
   return (req.ip || req.socket.remoteAddress || 'unknown').replace(/^::ffff:/, '')
 }
 
+function sessionId(value) {
+  return text(value, 80).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64)
+}
+
 export function readVisitor(req) {
   const body = req.body && typeof req.body === 'object' ? req.body : {}
 
   return {
+    sessionId: sessionId(body.sessionId),
     ip: clientIp(req),
     forwardedFor: text(req.get('x-forwarded-for'), 400),
     path: text(body.path || req.query.path, 200),
